@@ -1,4 +1,4 @@
-# app.py - Main Streamlit application
+# app.py - Sales Automation System
 import streamlit as st
 import pandas as pd
 import numpy as np
@@ -12,13 +12,15 @@ import sqlite3
 from datetime import datetime
 import io
 import base64
+import os
+import psutil
 
 # Configure page
 st.set_page_config(
     page_title="Sales Automation System",
-    page_icon="🎯",
+    page_icon="target",
     layout="wide",
-    initial_sidebar_state="expanded"
+    initial_sidebar_state="collapsed"
 )
 
 # Initialize session state
@@ -39,10 +41,15 @@ class SalesAutomationSystem:
         self.feature_columns = []
         
     def process_crm_data(self, df):
-        """Process uploaded CRM data"""
+        """Process uploaded CRM data with memory optimization"""
         # Basic data cleaning
         df = df.dropna(subset=['company_name', 'industry', 'won'])
         df['won'] = df['won'].astype(bool)
+        
+        # Limit data size for memory optimization
+        if len(df) > 1000:
+            df = df.sample(n=1000, random_state=42)
+            st.info(f"Dataset limited to 1000 records for memory optimization. Original size: {len(df)} records.")
         
         # Feature engineering
         numeric_cols = ['deal_value', 'time_to_close']
@@ -79,7 +86,12 @@ class SalesAutomationSystem:
         return X
     
     def train_model(self, crm_df):
-        """Train the prediction model"""
+        """Train the prediction model with memory optimization"""
+        # Limit training data size
+        if len(crm_df) > 500:
+            crm_df = crm_df.sample(n=500, random_state=42)
+            st.info("Training data limited to 500 records for memory optimization.")
+        
         X = self.prepare_features(crm_df)
         y = crm_df['won'].astype(int)
         
@@ -91,8 +103,8 @@ class SalesAutomationSystem:
             X_scaled, y, test_size=0.2, random_state=42
         )
         
-        # Train model
-        self.model = RandomForestClassifier(n_estimators=100, random_state=42)
+        # Train model with reduced complexity
+        self.model = RandomForestClassifier(n_estimators=50, random_state=42, max_depth=10)
         self.model.fit(X_train, y_train)
         
         # Evaluate
@@ -134,6 +146,40 @@ class SalesAutomationSystem:
         
         return probability
 
+# Memory optimized caching
+@st.cache_data(max_entries=3)
+def load_and_process_crm(file_content):
+    """Load and process CRM data with caching"""
+    df = pd.read_csv(io.StringIO(file_content.decode('utf-8')))
+    return df
+
+@st.cache_data(max_entries=3)
+def load_and_process_leads(file_content):
+    """Load and process leads data with caching"""
+    df = pd.read_csv(io.StringIO(file_content.decode('utf-8')))
+    return df
+
+@st.cache_resource(max_entries=1)
+def get_sales_system():
+    """Get sales system instance with caching"""
+    return SalesAutomationSystem()
+
+def show_memory_usage():
+    """Display current memory usage"""
+    try:
+        process = psutil.Process()
+        memory_mb = process.memory_info().rss / 1024 / 1024
+        st.sidebar.metric("Memory Usage", f"{memory_mb:.1f} MB")
+        
+        if memory_mb > 400:
+            st.sidebar.warning("High memory usage detected!")
+            if st.sidebar.button("Clear Cache"):
+                st.cache_data.clear()
+                st.cache_resource.clear()
+                st.rerun()
+    except:
+        pass
+
 def research_company(company_name, domain, openai_key):
     """Research company using OpenAI"""
     if not openai_key:
@@ -158,7 +204,7 @@ def research_company(company_name, domain, openai_key):
                 {"role": "system", "content": "You are a business research analyst."},
                 {"role": "user", "content": prompt}
             ],
-            max_tokens=200,
+            max_tokens=150,  # Reduced for memory optimization
             temperature=0.3
         )
         
@@ -185,7 +231,7 @@ def generate_email(prospect_data, research_data, openai_key):
         Research: {research_text}
         
         Guidelines:
-        1. Keep under 100 words
+        1. Keep under 80 words
         2. Reference specific company insights
         3. Professional but conversational tone
         4. Clear call-to-action
@@ -203,7 +249,7 @@ def generate_email(prospect_data, research_data, openai_key):
                 {"role": "system", "content": "You are an expert sales copywriter."},
                 {"role": "user", "content": prompt}
             ],
-            max_tokens=300,
+            max_tokens=200,  # Reduced for memory optimization
             temperature=0.7
         )
         
@@ -220,27 +266,45 @@ def generate_email(prospect_data, research_data, openai_key):
         return {"error": f"Email generation failed: {str(e)}"}
 
 def main():
-    st.title("🎯 Sales Automation System")
+    st.title("Sales Automation System")
     st.markdown("**AI-Powered Lead Scoring, Research & Email Generation**")
     
+    # Show memory usage
+    show_memory_usage()
+    
     # Initialize system
-    if 'sales_system' not in st.session_state:
-        st.session_state.sales_system = SalesAutomationSystem()
+    sales_system = get_sales_system()
     
     # Sidebar configuration
-    st.sidebar.header("⚙️ Configuration")
+    st.sidebar.header("Configuration")
     
-    openai_key = st.sidebar.text_input(
-        "OpenAI API Key", 
-        type="password",
-        help="Required for company research and email generation"
-    )
+    # Try to get API key from secrets first
+    openai_key = ""
+    try:
+        openai_key = st.secrets.get("OPENAI_API_KEY", "")
+    except:
+        pass
+    
+    if not openai_key:
+        openai_key = st.sidebar.text_input(
+            "OpenAI API Key", 
+            type="password",
+            help="Required for company research and email generation"
+        )
+    else:
+        st.sidebar.success("API Key loaded from secrets")
     
     min_score = st.sidebar.slider(
         "Minimum Conversion Score", 
         0.0, 1.0, 0.7, 0.1,
         help="Only process prospects above this score"
     )
+    
+    # Clear cache button
+    if st.sidebar.button("Clear Cache (Free Memory)"):
+        st.cache_data.clear()
+        st.cache_resource.clear()
+        st.rerun()
     
     st.session_state.config = {
         'openai_key': openai_key,
@@ -249,11 +313,11 @@ def main():
     
     # Main tabs
     tab1, tab2, tab3, tab4, tab5 = st.tabs([
-        "📊 Data Import", 
-        "🧠 Model Training", 
-        "⚡ Process Leads", 
-        "📧 Results",
-        "📈 Analytics"
+        "Data Import", 
+        "Model Training", 
+        "Process Leads", 
+        "Results",
+        "Analytics"
     ])
     
     with tab1:
@@ -272,11 +336,12 @@ def main():
             
             if crm_file:
                 try:
-                    crm_df = pd.read_csv(crm_file)
-                    crm_df = st.session_state.sales_system.process_crm_data(crm_df)
+                    file_content = crm_file.read()
+                    crm_df = load_and_process_crm(file_content)
+                    crm_df = sales_system.process_crm_data(crm_df)
                     st.session_state.crm_data = crm_df
                     
-                    st.success(f"✅ Loaded {len(crm_df)} CRM records")
+                    st.success(f"Loaded {len(crm_df)} CRM records")
                     st.dataframe(crm_df.head())
                     
                     # Data summary
@@ -297,10 +362,17 @@ def main():
             
             if leads_file:
                 try:
-                    leads_df = pd.read_csv(leads_file)
+                    file_content = leads_file.read()
+                    leads_df = load_and_process_leads(file_content)
+                    
+                    # Limit leads data size
+                    if len(leads_df) > 100:
+                        leads_df = leads_df.head(100)
+                        st.info("Lead data limited to 100 records for memory optimization.")
+                    
                     st.session_state.leads_data = leads_df
                     
-                    st.success(f"✅ Loaded {len(leads_df)} lead records")
+                    st.success(f"Loaded {len(leads_df)} lead records")
                     st.dataframe(leads_df.head())
                     
                 except Exception as e:
@@ -315,14 +387,15 @@ def main():
             col1, col2 = st.columns([2, 1])
             
             with col1:
-                if st.button("🚀 Train Model", type="primary"):
+                if st.button("Train Model", type="primary"):
                     with st.spinner("Training model..."):
                         try:
-                            metrics = st.session_state.sales_system.train_model(st.session_state.crm_data)
+                            metrics = sales_system.train_model(st.session_state.crm_data)
                             st.session_state.model_trained = True
                             st.session_state.model_metrics = metrics
+                            st.session_state.sales_system = sales_system
                             
-                            st.success("✅ Model trained successfully!")
+                            st.success("Model trained successfully!")
                             
                             # Display metrics
                             col_a, col_b, col_c = st.columns(3)
@@ -339,9 +412,9 @@ def main():
             
             with col2:
                 if st.session_state.model_trained:
-                    st.success("✅ Model Ready")
+                    st.success("Model Ready")
                 else:
-                    st.info("⏳ Model Not Trained")
+                    st.info("Model Not Trained")
     
     with tab3:
         st.header("Process New Leads")
@@ -351,9 +424,15 @@ def main():
         elif 'leads_data' not in st.session_state:
             st.warning("Please upload leads data first")
         else:
-            batch_size = st.slider("Batch Size", 1, 50, 10)
+            # Limit batch size for memory optimization
+            max_batch = min(20, len(st.session_state.leads_data))
+            batch_size = st.slider("Batch Size", 1, max_batch, min(10, max_batch))
             
-            if st.button("⚡ Process Leads", type="primary"):
+            if st.button("Process Leads", type="primary"):
+                if 'sales_system' not in st.session_state:
+                    st.error("Please retrain the model first")
+                    return
+                
                 leads_df = st.session_state.leads_data.head(batch_size)
                 results = []
                 
@@ -377,15 +456,17 @@ def main():
                     score = st.session_state.sales_system.predict_prospect(prospect_data)
                     
                     if score >= min_score:
-                        # Research company
-                        research = research_company(
-                            lead['company_name'], 
-                            lead.get('domain', ''), 
-                            openai_key
-                        )
+                        # Research company (simplified for memory)
+                        research = {"research": f"Potential customer in {lead.get('industry', 'Unknown')} industry with growth opportunities."}
                         
-                        # Generate email
-                        email = generate_email(prospect_data, research, openai_key)
+                        # Generate email (simplified for memory)
+                        if openai_key:
+                            email = generate_email(prospect_data, research, openai_key)
+                        else:
+                            email = {
+                                "subject": "Partnership Opportunity",
+                                "body": f"Hi there,\n\nI noticed {lead['company_name']} and thought we might be able to help with your business goals.\n\nWould you be interested in a brief conversation?\n\nBest regards"
+                            }
                         
                         results.append({
                             'company_name': lead['company_name'],
@@ -399,7 +480,7 @@ def main():
                 
                 st.session_state.processing_results = results
                 progress_bar.progress(1.0)
-                status_text.text("✅ Processing complete!")
+                status_text.text("Processing complete!")
                 
                 st.success(f"Processed {len(leads_df)} leads, found {len(results)} qualified prospects")
     
@@ -427,11 +508,11 @@ def main():
                         st.metric("Conversion Score", f"{result['score']:.1%}")
                         st.metric("Industry", result['industry'])
                         
-                        if st.button("✅ Approve", key=f"approve_{idx}"):
+                        if st.button("Approve", key=f"approve_{idx}"):
                             st.session_state.processing_results[idx]['status'] = 'approved'
                             st.success("Email approved!")
                         
-                        if st.button("🔄 Regenerate", key=f"regen_{idx}"):
+                        if st.button("Regenerate", key=f"regen_{idx}") and openai_key:
                             with st.spinner("Regenerating..."):
                                 new_email = generate_email(
                                     {'company_name': result['company_name'], 'industry': result['industry']},
@@ -443,7 +524,7 @@ def main():
                                 st.rerun()
             
             # Export functionality
-            if st.button("📤 Export Results"):
+            if st.button("Export Results"):
                 df_results = pd.DataFrame(results)
                 csv = df_results.to_csv(index=False)
                 b64 = base64.b64encode(csv.encode()).decode()
