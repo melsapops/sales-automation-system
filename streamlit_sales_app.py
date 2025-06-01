@@ -1,4 +1,4 @@
-# app.py - Sales Automation System (Debugged Version)
+# Sales Automation System (Debugged Version)
 import streamlit as st
 import pandas as pd
 import numpy as np
@@ -17,13 +17,6 @@ warnings.filterwarnings('ignore')
 
 # Try to import optional dependencies
 try:
-    import psutil
-    PSUTIL_AVAILABLE = True
-except ImportError:
-    PSUTIL_AVAILABLE = False
-    st.warning("psutil not installed. Memory monitoring disabled.")
-
-try:
     import openai
     OPENAI_AVAILABLE = True
 except ImportError:
@@ -33,7 +26,6 @@ except ImportError:
 # Configure page
 st.set_page_config(
     page_title="Sales Automation System",
-    page_icon="🎯",
     layout="wide",
     initial_sidebar_state="expanded"
 )
@@ -271,28 +263,6 @@ class SalesAutomationSystem:
             st.error(f"Error predicting prospect: {str(e)}")
             return 0.0
 
-def show_memory_usage():
-    """Display current memory usage"""
-    if not PSUTIL_AVAILABLE:
-        return
-        
-    try:
-        process = psutil.Process()
-        memory_mb = process.memory_info().rss / 1024 / 1024
-        st.sidebar.metric("Memory Usage", f"{memory_mb:.1f} MB")
-        
-        if memory_mb > 400:
-            st.sidebar.warning("High memory usage detected!")
-            if st.sidebar.button("Clear Cache"):
-                st.cache_data.clear()
-                try:
-                    st.cache_resource.clear()
-                except AttributeError:
-                    pass  # Older Streamlit versions
-                st.rerun()
-    except Exception as e:
-        st.sidebar.info(f"Memory monitoring error: {str(e)}")
-
 def research_company(company_name, domain, openai_key):
     """Research company using OpenAI with better error handling"""
     if not OPENAI_AVAILABLE:
@@ -410,18 +380,15 @@ def main():
     # Initialize session state
     initialize_session_state()
     
-    st.title("🎯 Sales Automation System")
+    st.title("Sales Automation System")
     st.markdown("**AI-Powered Lead Scoring, Research & Email Generation**")
-    
-    # Show memory usage
-    show_memory_usage()
     
     # Initialize system
     if st.session_state.sales_system is None:
         st.session_state.sales_system = SalesAutomationSystem()
     
     # Sidebar configuration
-    st.sidebar.header("⚙️ Configuration")
+    st.sidebar.header("Configuration")
     
     # Try to get API key from secrets first
     openai_key = ""
@@ -437,7 +404,7 @@ def main():
             help="Required for company research and email generation"
         )
     else:
-        st.sidebar.success("✅ API Key loaded from secrets")
+        st.sidebar.success("API Key loaded from secrets")
     
     min_score = st.sidebar.slider(
         "Minimum Conversion Score", 
@@ -446,7 +413,7 @@ def main():
     )
     
     # Clear cache button
-    if st.sidebar.button("🗑️ Clear Cache"):
+    if st.sidebar.button("Clear Cache"):
         st.cache_data.clear()
         try:
             st.cache_resource.clear()
@@ -465,15 +432,15 @@ def main():
     
     # Main tabs
     tab1, tab2, tab3, tab4, tab5 = st.tabs([
-        "📁 Data Import", 
-        "🤖 Model Training", 
-        "⚡ Process Leads", 
-        "📧 Results",
-        "📊 Analytics"
+        "Data Import", 
+        "Model Training", 
+        "Process Leads", 
+        "Results",
+        "Analytics"
     ])
     
     with tab1:
-        st.header("📁 Data Import")
+        st.header("Data Import")
         
         col1, col2 = st.columns(2)
         
@@ -498,7 +465,7 @@ def main():
                     if processed_df is not None:
                         st.session_state.crm_data = processed_df
                         
-                        st.success(f"✅ Loaded {len(processed_df)} CRM records")
+                        st.success(f"Loaded {len(processed_df)} CRM records")
                         st.dataframe(processed_df.head())
                         
                         # Data summary
@@ -516,7 +483,7 @@ def main():
                             st.write("- Industries:", processed_df['industry'].nunique())
                     
                 except Exception as e:
-                    st.error(f"❌ Error loading CRM data: {e}")
+                    st.error(f"Error loading CRM data: {e}")
         
         with col2:
             st.subheader("Lead Forensics Data")
@@ -539,11 +506,11 @@ def main():
                     missing_cols = [col for col in required_lead_cols if col not in leads_df.columns]
                     
                     if missing_cols:
-                        st.error(f"❌ Missing required columns: {missing_cols}")
+                        st.error(f"Missing required columns: {missing_cols}")
                     else:
                         st.session_state.leads_data = leads_df
                         
-                        st.success(f"✅ Loaded {len(leads_df)} lead records")
+                        st.success(f"Loaded {len(leads_df)} lead records")
                         st.dataframe(leads_df.head())
                         
                         # Show lead info
@@ -554,20 +521,20 @@ def main():
                             st.write("- Company sizes:", leads_df['company_size'].nunique())
                     
                 except Exception as e:
-                    st.error(f"❌ Error loading leads data: {e}")
+                    st.error(f"Error loading leads data: {e}")
     
     with tab2:
-        st.header("🤖 Model Training")
+        st.header("Model Training")
         
         if st.session_state.crm_data is None:
-            st.warning("⚠️ Please upload CRM data first")
+            st.warning("Please upload CRM data first")
         else:
             col1, col2 = st.columns([2, 1])
             
             with col1:
                 st.write(f"**Training data:** {len(st.session_state.crm_data)} records")
                 
-                if st.button("🚀 Train Model", type="primary"):
+                if st.button("Train Model", type="primary"):
                     with st.spinner("Training model..."):
                         try:
                             metrics = st.session_state.sales_system.train_model(st.session_state.crm_data)
@@ -576,7 +543,7 @@ def main():
                                 st.session_state.model_trained = True
                                 st.session_state.model_metrics = metrics
                                 
-                                st.success("✅ Model trained successfully!")
+                                st.success("Model trained successfully!")
                                 
                                 # Display metrics
                                 col_a, col_b, col_c = st.columns(3)
@@ -591,28 +558,28 @@ def main():
                                     except KeyError:
                                         st.metric("Precision", "N/A")
                             else:
-                                st.error("❌ Model training failed")
+                                st.error("Model training failed")
                                 
                         except Exception as e:
-                            st.error(f"❌ Training failed: {e}")
+                            st.error(f"Training failed: {e}")
             
             with col2:
                 if st.session_state.model_trained:
-                    st.success("✅ Model Ready")
+                    st.success("Model Ready")
                     if st.session_state.model_metrics:
                         st.write("**Model Performance:**")
                         st.write(f"- Accuracy: {st.session_state.model_metrics.get('accuracy', 0):.3f}")
                         st.write(f"- AUC: {st.session_state.model_metrics.get('auc', 0):.3f}")
                 else:
-                    st.info("ℹ️ Model Not Trained")
+                    st.info("Model Not Trained")
     
     with tab3:
-        st.header("⚡ Process New Leads")
+        st.header("Process New Leads")
         
         if not st.session_state.model_trained:
-            st.warning("⚠️ Please train the model first")
+            st.warning("Please train the model first")
         elif st.session_state.leads_data is None:
-            st.warning("⚠️ Please upload leads data first")
+            st.warning("Please upload leads data first")
         else:
             batch_size = st.slider("Batch Size", 1, min(50, len(st.session_state.leads_data)), 10)
             
@@ -621,9 +588,9 @@ def main():
                 st.write(f"Will process {batch_size} leads from {len(st.session_state.leads_data)} total")
             with col2:
                 if not openai_key:
-                    st.warning("⚠️ No OpenAI key - research/email disabled")
+                    st.warning("No OpenAI key - research/email disabled")
             
-            if st.button("⚡ Process Leads", type="primary"):
+            if st.button("Process Leads", type="primary"):
                 leads_df = st.session_state.leads_data.head(batch_size)
                 results = []
                 
@@ -673,15 +640,15 @@ def main():
                 
                 st.session_state.processing_results = results
                 progress_bar.progress(1.0)
-                status_text.text("✅ Processing complete!")
+                status_text.text("Processing complete!")
                 
-                st.success(f"🎉 Processed {len(leads_df)} leads, found {len(results)} qualified prospects")
+                st.success(f"Processed {len(leads_df)} leads, found {len(results)} qualified prospects")
     
     with tab4:
-        st.header("📧 Generated Emails")
+        st.header("Generated Emails")
         
         if not st.session_state.processing_results:
-            st.info("ℹ️ No results yet. Process some leads first.")
+            st.info("No results yet. Process some leads first.")
         else:
             results = st.session_state.processing_results
             
@@ -709,11 +676,11 @@ def main():
                     col1, col2 = st.columns([2, 1])
                     
                     with col1:
-                        st.subheader("📧 Generated Email")
+                        st.subheader("Generated Email")
                         st.write(f"**Subject:** {result['email_subject']}")
                         st.text_area("Email Body", result['email_body'], height=100, key=f"email_{orig_idx}")
                         
-                        st.subheader("🔍 Company Research")
+                        st.subheader("Company Research")
                         st.write(result['research'])
                     
                     with col2:
@@ -723,18 +690,18 @@ def main():
                         
                         col_a, col_b = st.columns(2)
                         with col_a:
-                            if st.button("✅ Approve", key=f"approve_{orig_idx}"):
+                            if st.button("Approve", key=f"approve_{orig_idx}"):
                                 st.session_state.processing_results[orig_idx]['status'] = 'approved'
                                 st.success("Email approved!")
                                 st.rerun()
                         
                         with col_b:
-                            if st.button("❌ Reject", key=f"reject_{orig_idx}"):
+                            if st.button("Reject", key=f"reject_{orig_idx}"):
                                 st.session_state.processing_results[orig_idx]['status'] = 'rejected'
                                 st.success("Email rejected!")
                                 st.rerun()
                         
-                        if st.button("🔄 Regenerate", key=f"regen_{orig_idx}"):
+                        if st.button("Regenerate", key=f"regen_{orig_idx}"):
                             if openai_key:
                                 with st.spinner("Regenerating..."):
                                     new_email = generate_email(
@@ -749,19 +716,19 @@ def main():
                                 st.error("OpenAI API key required for regeneration")
             
             # Export functionality
-            if st.button("📥 Export Results"):
+            if st.button("Export Results"):
                 try:
                     df_results = pd.DataFrame(results)
                     csv = df_results.to_csv(index=False)
                     b64 = base64.b64encode(csv.encode()).decode()
                     href = f'<a href="data:file/csv;base64,{b64}" download="sales_results_{datetime.now().strftime("%Y%m%d_%H%M%S")}.csv">Download CSV</a>'
                     st.markdown(href, unsafe_allow_html=True)
-                    st.success("✅ Export ready!")
+                    st.success("Export ready!")
                 except Exception as e:
-                    st.error(f"❌ Export failed: {e}")
+                    st.error(f"Export failed: {e}")
     
     with tab5:
-        st.header("📊 Analytics Dashboard")
+        st.header("Analytics Dashboard")
         
         if st.session_state.processing_results:
             results = st.session_state.processing_results
@@ -780,10 +747,10 @@ def main():
                     st.metric("Approved Emails", approved_count)
                 with col4:
                     high_score_count = len([r for r in results if r['score'] >= 0.8])
-                    st.metric("High Score (≥80%)", high_score_count)
+                    st.metric("High Score (>=80%)", high_score_count)
                 
                 # Score histogram
-                st.subheader("📈 Score Distribution")
+                st.subheader("Score Distribution")
                 fig_data = pd.DataFrame({'Score': scores})
                 st.bar_chart(fig_data['Score'])
                 
@@ -791,17 +758,17 @@ def main():
                 industries = [r['industry'] for r in results]
                 industry_counts = pd.Series(industries).value_counts()
                 
-                st.subheader("🏭 Industry Breakdown")
+                st.subheader("Industry Breakdown")
                 st.bar_chart(industry_counts)
                 
                 # Status breakdown
                 statuses = [r.get('status', 'pending') for r in results]
                 status_counts = pd.Series(statuses).value_counts()
                 
-                st.subheader("📋 Status Breakdown")
+                st.subheader("Status Breakdown")
                 st.bar_chart(status_counts)
         else:
-            st.info("ℹ️ No analytics data available yet.")
+            st.info("No analytics data available yet.")
 
 if __name__ == "__main__":
     main()
