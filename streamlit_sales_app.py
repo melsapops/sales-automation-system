@@ -1,5 +1,4 @@
-
-\f0\fs26 \cf0 # app.py - Sales Automation System\
+ # app.py - Sales Automation System\
 import streamlit as st\
 import pandas as pd\
 import numpy as np\
