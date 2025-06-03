@@ -1,4 +1,4 @@
-# Sales Automation System (Debugged Version)
+# app.py - Sales Automation System
 import streamlit as st
 import pandas as pd
 import numpy as np
@@ -6,48 +6,32 @@ from sklearn.ensemble import RandomForestClassifier
 from sklearn.preprocessing import LabelEncoder, StandardScaler
 from sklearn.model_selection import train_test_split
 from sklearn.metrics import classification_report, roc_auc_score, accuracy_score
+import openai
 import pickle
 import sqlite3
 from datetime import datetime
 import io
 import base64
 import os
-import warnings
-warnings.filterwarnings('ignore')
-
-# Try to import optional dependencies
-try:
-    import openai
-    OPENAI_AVAILABLE = True
-except ImportError:
-    OPENAI_AVAILABLE = False
-    st.error("OpenAI package not installed. Please install with: pip install openai")
+import psutil
 
 # Configure page
 st.set_page_config(
     page_title="Sales Automation System",
+    page_icon="target",
     layout="wide",
     initial_sidebar_state="expanded"
 )
 
-# Initialize session state with better defaults
-def initialize_session_state():
-    """Initialize all session state variables"""
-    defaults = {
-        'config': {},
-        'model': None,
-        'data_processed': False,
-        'model_trained': False,
-        'sales_system': None,
-        'crm_data': None,
-        'leads_data': None,
-        'processing_results': [],
-        'model_metrics': {}
-    }
-    
-    for key, value in defaults.items():
-        if key not in st.session_state:
-            st.session_state[key] = value
+# Initialize session state
+if 'config' not in st.session_state:
+    st.session_state.config = {}
+if 'model' not in st.session_state:
+    st.session_state.model = None
+if 'data_processed' not in st.session_state:
+    st.session_state.data_processed = False
+if 'model_trained' not in st.session_state:
+    st.session_state.model_trained = False
 
 class SalesAutomationSystem:
     def __init__(self):
@@ -55,219 +39,176 @@ class SalesAutomationSystem:
         self.scaler = StandardScaler()
         self.label_encoders = {}
         self.feature_columns = []
-        self.required_columns = ['company_name', 'industry', 'won']
-        
-    def validate_crm_data(self, df):
-        """Validate that required columns exist"""
-        missing_cols = [col for col in self.required_columns if col not in df.columns]
-        if missing_cols:
-            raise ValueError(f"Missing required columns: {missing_cols}")
-        return True
         
     def process_crm_data(self, df):
-        """Process uploaded CRM data with better error handling"""
-        try:
-            # Validate required columns
-            self.validate_crm_data(df)
-            
-            # Create a copy to avoid modifying original
-            df = df.copy()
-            
-            # Basic data cleaning
-            df = df.dropna(subset=self.required_columns)
-            
-            # Handle boolean conversion more robustly
-            if df['won'].dtype == 'object':
-                df['won'] = df['won'].astype(str).str.lower().isin(['true', '1', 'yes', 'won'])
+        """Process uploaded CRM data with comprehensive debugging"""
+        st.write("**Debug: Processing CRM data...**")
+        st.write(f"Original data shape: {df.shape}")
+        st.write(f"Column names: {list(df.columns)}")
+        st.write("First few rows:")
+        st.dataframe(df.head())
+        
+        # Check for required columns
+        required_cols = ['company_name', 'industry', 'won']
+        missing_cols = [col for col in required_cols if col not in df.columns]
+        
+        if missing_cols:
+            st.error(f"Missing required columns: {missing_cols}")
+            st.info("Required columns: company_name, industry, won")
+            st.info("Optional columns: company_size, deal_value, time_to_close, location")
+            return None
+        
+        # Show data types before processing
+        st.write("Data types before processing:")
+        st.write(df.dtypes)
+        
+        # Clean the 'won' column with better handling
+        st.write("Processing 'won' column...")
+        st.write(f"Unique values in 'won' column: {df['won'].unique()}")
+        
+        # Handle different formats for 'won' column
+        def convert_won(value):
+            if pd.isna(value):
+                return None
+            value_str = str(value).lower().strip()
+            if value_str in ['true', '1', 'yes', 'y', 'won', 'closed']:
+                return True
+            elif value_str in ['false', '0', 'no', 'n', 'lost', 'open']:
+                return False
             else:
-                df['won'] = df['won'].astype(bool)
-            
-            # Feature engineering with error handling
-            numeric_cols = ['deal_value', 'time_to_close']
-            for col in numeric_cols:
-                if col in df.columns:
-                    df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0)
-            
-            # Handle missing categorical columns
-            categorical_cols = ['industry', 'company_size', 'location']
-            for col in categorical_cols:
-                if col in df.columns:
-                    df[col] = df[col].fillna('Unknown')
-            
-            return df
-            
-        except Exception as e:
-            st.error(f"Error processing CRM data: {str(e)}")
-            return None
+                return None
+        
+        df['won_converted'] = df['won'].apply(convert_won)
+        st.write(f"After conversion - unique values: {df['won_converted'].unique()}")
+        
+        # Remove rows where 'won' couldn't be converted
+        before_clean = len(df)
+        df = df.dropna(subset=['company_name', 'industry', 'won_converted'])
+        df['won'] = df['won_converted']
+        df = df.drop('won_converted', axis=1)
+        after_clean = len(df)
+        
+        st.write(f"Removed {before_clean - after_clean} rows with invalid data")
+        st.write(f"Final data shape: {df.shape}")
+        
+        # Feature engineering
+        numeric_cols = ['deal_value', 'time_to_close']
+        for col in numeric_cols:
+            if col in df.columns:
+                st.write(f"Processing numeric column: {col}")
+                original_values = df[col].head()
+                df[col] = pd.to_numeric(df[col], errors='coerce').fillna(0)
+                st.write(f"Sample conversion - Original: {original_values.values}, Converted: {df[col].head().values}")
+        
+        # Show final data summary
+        st.write("Final processed data:")
+        st.dataframe(df.head())
+        st.write("Data types after processing:")
+        st.write(df.dtypes)
+        st.write(f"Conversion rate: {(df['won'].sum() / len(df) * 100):.1f}%")
+        
+        return df
     
-    def prepare_features(self, df, is_training=True):
-        """Prepare features for model training/prediction"""
-        try:
-            feature_cols = ['industry', 'company_size', 'deal_value', 'time_to_close', 'location']
-            available_cols = [col for col in feature_cols if col in df.columns]
-            
-            if not available_cols:
-                raise ValueError("No valid feature columns found")
-            
-            X = df[available_cols].copy()
-            
-            # Handle categorical variables
-            categorical_cols = ['industry', 'company_size', 'location']
-            for col in categorical_cols:
-                if col in X.columns:
-                    if is_training:
-                        if col not in self.label_encoders:
-                            self.label_encoders[col] = LabelEncoder()
-                        X[col] = self.label_encoders[col].fit_transform(X[col].fillna('Unknown'))
-                    else:
-                        if col in self.label_encoders:
-                            # Handle unseen categories
-                            unique_values = X[col].fillna('Unknown').unique()
-                            known_values = self.label_encoders[col].classes_
-                            
-                            # Map unknown values to a default
-                            X[col] = X[col].fillna('Unknown')
-                            X[col] = X[col].apply(lambda x: x if x in known_values else 'Unknown')
-                            X[col] = self.label_encoders[col].transform(X[col])
-                        else:
-                            X[col] = 0  # Default value if encoder not available
-            
-            # Handle numeric variables
-            numeric_cols = ['deal_value', 'time_to_close']
-            for col in numeric_cols:
-                if col in X.columns:
-                    X[col] = X[col].fillna(0)
-            
-            if is_training:
-                self.feature_columns = X.columns.tolist()
-            
-            return X
-            
-        except Exception as e:
-            st.error(f"Error preparing features: {str(e)}")
-            return None
+    def prepare_features(self, df):
+        """Prepare features for model training"""
+        feature_cols = ['industry', 'company_size', 'deal_value', 'time_to_close', 'location']
+        available_cols = [col for col in feature_cols if col in df.columns]
+        
+        X = df[available_cols].copy()
+        
+        # Handle categorical variables
+        categorical_cols = ['industry', 'company_size', 'location']
+        for col in categorical_cols:
+            if col in X.columns:
+                if col not in self.label_encoders:
+                    self.label_encoders[col] = LabelEncoder()
+                    X[col] = self.label_encoders[col].fit_transform(X[col].fillna('unknown'))
+                else:
+                    X[col] = self.label_encoders[col].transform(X[col].fillna('unknown'))
+        
+        # Handle numeric variables
+        numeric_cols = ['deal_value', 'time_to_close']
+        for col in numeric_cols:
+            if col in X.columns:
+                X[col] = X[col].fillna(0)
+        
+        self.feature_columns = X.columns.tolist()
+        return X
     
     def train_model(self, crm_df):
-        """Train the prediction model with better error handling"""
-        try:
-            if crm_df is None or len(crm_df) == 0:
-                raise ValueError("No valid training data provided")
-            
-            X = self.prepare_features(crm_df, is_training=True)
-            if X is None:
-                return None
-                
-            y = crm_df['won'].astype(int)
-            
-            if len(X) < 10:
-                raise ValueError("Not enough data for training (minimum 10 samples required)")
-            
-            # Check for class balance
-            if y.sum() == 0 or y.sum() == len(y):
-                st.warning("All samples have the same class. Model may not be reliable.")
-            
-            # Scale features
-            X_scaled = self.scaler.fit_transform(X)
-            
-            # Split data with stratification if possible
-            try:
-                X_train, X_test, y_train, y_test = train_test_split(
-                    X_scaled, y, test_size=0.2, random_state=42, stratify=y
-                )
-            except ValueError:
-                # Fall back to non-stratified split
-                X_train, X_test, y_train, y_test = train_test_split(
-                    X_scaled, y, test_size=0.2, random_state=42
-                )
-            
-            # Train model with better parameters
-            self.model = RandomForestClassifier(
-                n_estimators=100, 
-                random_state=42,
-                min_samples_split=5,
-                min_samples_leaf=2
-            )
-            self.model.fit(X_train, y_train)
-            
-            # Evaluate
-            y_pred = self.model.predict(X_test)
-            
-            # Handle case where model only predicts one class
-            try:
-                y_pred_proba = self.model.predict_proba(X_test)[:, 1]
-                auc = roc_auc_score(y_test, y_pred_proba)
-            except (ValueError, IndexError):
-                auc = 0.5  # Random performance
-            
-            metrics = {
-                'accuracy': accuracy_score(y_test, y_pred),
-                'auc': auc,
-                'classification_report': classification_report(y_test, y_pred, output_dict=True, zero_division=0)
-            }
-            
-            return metrics
-            
-        except Exception as e:
-            st.error(f"Error training model: {str(e)}")
-            return None
+        """Train the prediction model"""
+        X = self.prepare_features(crm_df)
+        y = crm_df['won'].astype(int)
+        
+        # Scale features
+        X_scaled = self.scaler.fit_transform(X)
+        
+        # Split data
+        X_train, X_test, y_train, y_test = train_test_split(
+            X_scaled, y, test_size=0.2, random_state=42
+        )
+        
+        # Train model
+        self.model = RandomForestClassifier(n_estimators=100, random_state=42)
+        self.model.fit(X_train, y_train)
+        
+        # Evaluate
+        y_pred = self.model.predict(X_test)
+        y_pred_proba = self.model.predict_proba(X_test)[:, 1]
+        
+        metrics = {
+            'accuracy': accuracy_score(y_test, y_pred),
+            'auc': roc_auc_score(y_test, y_pred_proba),
+            'classification_report': classification_report(y_test, y_pred, output_dict=True)
+        }
+        
+        return metrics
     
     def predict_prospect(self, prospect_data):
         """Predict conversion probability for a prospect"""
-        try:
-            if not self.model:
-                return 0.0
-            
-            # Prepare features
-            features = {}
-            for col in self.feature_columns:
-                if col in ['industry', 'company_size', 'location']:
-                    value = prospect_data.get(col, 'Unknown')
-                    if col in self.label_encoders:
-                        try:
-                            # Check if value is in known classes
-                            if value in self.label_encoders[col].classes_:
-                                features[col] = self.label_encoders[col].transform([value])[0]
-                            else:
-                                # Use 'Unknown' as fallback
-                                if 'Unknown' in self.label_encoders[col].classes_:
-                                    features[col] = self.label_encoders[col].transform(['Unknown'])[0]
-                                else:
-                                    features[col] = 0
-                        except (ValueError, KeyError):
-                            features[col] = 0
-                    else:
+        if not self.model:
+            return 0.0
+        
+        # Prepare features
+        features = {}
+        for col in self.feature_columns:
+            if col in ['industry', 'company_size', 'location']:
+                value = prospect_data.get(col, 'unknown')
+                if col in self.label_encoders:
+                    try:
+                        features[col] = self.label_encoders[col].transform([value])[0]
+                    except ValueError:
                         features[col] = 0
                 else:
-                    features[col] = float(prospect_data.get(col, 0))
-            
-            # Create DataFrame and predict
-            feature_df = pd.DataFrame([features])
-            
-            # Ensure all required columns are present
-            for col in self.feature_columns:
-                if col not in feature_df.columns:
-                    feature_df[col] = 0
-            
-            feature_df = feature_df[self.feature_columns]
-            feature_scaled = self.scaler.transform(feature_df)
-            
-            try:
-                probability = self.model.predict_proba(feature_scaled)[0][1]
-            except IndexError:
-                # Handle case where model only has one class
-                probability = 0.5
-            
-            return float(probability)
-            
-        except Exception as e:
-            st.error(f"Error predicting prospect: {str(e)}")
-            return 0.0
+                    features[col] = 0
+            else:
+                features[col] = prospect_data.get(col, 0)
+        
+        # Create DataFrame and predict
+        feature_df = pd.DataFrame([features])
+        feature_scaled = self.scaler.transform(feature_df[self.feature_columns])
+        probability = self.model.predict_proba(feature_scaled)[0][1]
+        
+        return probability
+
+def show_memory_usage():
+    """Display current memory usage"""
+    try:
+        process = psutil.Process()
+        memory_mb = process.memory_info().rss / 1024 / 1024
+        st.sidebar.metric("Memory Usage", f"{memory_mb:.1f} MB")
+        
+        if memory_mb > 400:
+            st.sidebar.warning("High memory usage detected!")
+            if st.sidebar.button("Clear Cache"):
+                st.cache_data.clear()
+                st.cache_resource.clear()
+                st.rerun()
+    except Exception as e:
+        st.sidebar.info("Memory monitoring unavailable")
 
 def research_company(company_name, domain, openai_key):
-    """Research company using OpenAI with better error handling"""
-    if not OPENAI_AVAILABLE:
-        return {"error": "OpenAI package not installed"}
-    
+    """Research company using OpenAI"""
     if not openai_key:
         return {"error": "OpenAI API key required"}
     
@@ -291,24 +232,16 @@ def research_company(company_name, domain, openai_key):
                 {"role": "user", "content": prompt}
             ],
             max_tokens=200,
-            temperature=0.3,
-            timeout=30  # Add timeout
+            temperature=0.3
         )
         
         return {"research": response.choices[0].message.content}
         
-    except openai.RateLimitError:
-        return {"error": "OpenAI rate limit exceeded. Please try again later."}
-    except openai.AuthenticationError:
-        return {"error": "Invalid OpenAI API key"}
     except Exception as e:
         return {"error": f"Research failed: {str(e)}"}
 
 def generate_email(prospect_data, research_data, openai_key):
-    """Generate personalized email with better error handling"""
-    if not OPENAI_AVAILABLE:
-        return {"error": "OpenAI package not installed"}
-    
+    """Generate personalized email"""
     if not openai_key:
         return {"error": "OpenAI API key required"}
     
@@ -344,47 +277,30 @@ def generate_email(prospect_data, research_data, openai_key):
                 {"role": "user", "content": prompt}
             ],
             max_tokens=300,
-            temperature=0.7,
-            timeout=30  # Add timeout
+            temperature=0.7
         )
         
         email_content = response.choices[0].message.content
         
-        # Parse subject and body with better error handling
-        try:
-            lines = email_content.split('\n')
-            subject_line = next((line for line in lines if line.lower().startswith('subject:')), lines[0] if lines else 'Partnership Opportunity')
-            subject = subject_line.replace('Subject:', '').replace('subject:', '').strip()
-            
-            # Find email body (everything after subject line)
-            body_start = next((i for i, line in enumerate(lines) if line.lower().startswith('subject:')), -1) + 2
-            if body_start < len(lines):
-                body = '\n'.join(lines[body_start:]).strip()
-            else:
-                body = email_content
-                
-        except Exception:
-            subject = 'Partnership Opportunity'
-            body = email_content
+        # Parse subject and body
+        lines = email_content.split('\n')
+        subject = lines[0].replace('Subject: ', '') if lines else 'Partnership Opportunity'
+        body = '\n'.join(lines[2:]) if len(lines) > 2 else email_content
         
         return {"subject": subject, "body": body}
         
-    except openai.RateLimitError:
-        return {"error": "OpenAI rate limit exceeded. Please try again later."}
-    except openai.AuthenticationError:
-        return {"error": "Invalid OpenAI API key"}
     except Exception as e:
         return {"error": f"Email generation failed: {str(e)}"}
 
 def main():
-    # Initialize session state
-    initialize_session_state()
-    
     st.title("Sales Automation System")
     st.markdown("**AI-Powered Lead Scoring, Research & Email Generation**")
     
+    # Show memory usage
+    show_memory_usage()
+    
     # Initialize system
-    if st.session_state.sales_system is None:
+    if 'sales_system' not in st.session_state:
         st.session_state.sales_system = SalesAutomationSystem()
     
     # Sidebar configuration
@@ -394,7 +310,7 @@ def main():
     openai_key = ""
     try:
         openai_key = st.secrets.get("OPENAI_API_KEY", "")
-    except Exception:
+    except:
         pass
     
     if not openai_key:
@@ -415,14 +331,7 @@ def main():
     # Clear cache button
     if st.sidebar.button("Clear Cache"):
         st.cache_data.clear()
-        try:
-            st.cache_resource.clear()
-        except AttributeError:
-            pass
-        # Clear session state
-        for key in list(st.session_state.keys()):
-            if key not in ['config']:
-                del st.session_state[key]
+        st.cache_resource.clear()
         st.rerun()
     
     st.session_state.config = {
@@ -446,79 +355,77 @@ def main():
         
         with col1:
             st.subheader("CRM Data")
-            st.info("Required columns: company_name, industry, won")
-            st.info("Optional columns: company_size, deal_value, time_to_close, location")
-            
             crm_file = st.file_uploader(
                 "Upload CRM CSV", 
                 type=['csv'],
-                key="crm_upload"
+                key="crm_upload",
+                help="Expected columns: company_name, industry, company_size, deal_value, time_to_close, won, location"
             )
             
             if crm_file:
                 try:
+                    st.write("**Debug: Reading CSV file...**")
                     crm_df = pd.read_csv(crm_file)
-                    st.write("**Original columns:**", list(crm_df.columns))
+                    st.write(f"Successfully read CSV with shape: {crm_df.shape}")
                     
+                    # Show raw data first
+                    st.write("**Raw data preview:**")
+                    st.dataframe(crm_df.head(10))
+                    
+                    # Process the data
                     processed_df = st.session_state.sales_system.process_crm_data(crm_df)
                     
                     if processed_df is not None:
                         st.session_state.crm_data = processed_df
                         
-                        st.success(f"Loaded {len(processed_df)} CRM records")
-                        st.dataframe(processed_df.head())
+                        st.success(f"Successfully loaded {len(processed_df)} CRM records")
                         
                         # Data summary
-                        won_rate = (processed_df['won'].sum() / len(processed_df)) * 100
-                        st.metric("Conversion Rate", f"{won_rate:.1f}%")
+                        won_count = processed_df['won'].sum()
+                        total_count = len(processed_df)
+                        won_rate = (won_count / total_count) * 100
                         
-                        # Show data info
-                        st.write("**Data Info:**")
-                        col_a, col_b = st.columns(2)
+                        col_a, col_b, col_c = st.columns(3)
                         with col_a:
-                            st.write("- Total records:", len(processed_df))
-                            st.write("- Won deals:", processed_df['won'].sum())
+                            st.metric("Total Records", total_count)
                         with col_b:
-                            st.write("- Lost deals:", (~processed_df['won']).sum())
-                            st.write("- Industries:", processed_df['industry'].nunique())
-                    
+                            st.metric("Won Deals", won_count)
+                        with col_c:
+                            st.metric("Conversion Rate", f"{won_rate:.1f}%")
+                    else:
+                        st.error("Failed to process CRM data. Please check the format and try again.")
+                        
                 except Exception as e:
-                    st.error(f"Error loading CRM data: {e}")
+                    st.error(f"Error loading CRM data: {str(e)}")
+                    st.write("**Error details:**")
+                    st.exception(e)
+                    
+                    # Additional debugging
+                    try:
+                        st.write("**Attempting to read first few lines of file:**")
+                        crm_file.seek(0)  # Reset file pointer
+                        first_lines = crm_file.read().decode('utf-8').split('\n')[:5]
+                        for i, line in enumerate(first_lines):
+                            st.write(f"Line {i+1}: {line}")
+                    except Exception as read_error:
+                        st.write(f"Could not read file content: {read_error}")
         
         with col2:
             st.subheader("Lead Forensics Data")
-            st.info("Expected columns: company_name, domain, industry, company_size")
-            st.info("Optional columns: pages_visited, session_duration, return_visits, location")
-            
             leads_file = st.file_uploader(
                 "Upload Leads CSV", 
                 type=['csv'],
-                key="leads_upload"
+                key="leads_upload",
+                help="Expected columns: company_name, domain, industry, company_size, pages_visited, session_duration, return_visits"
             )
             
             if leads_file:
                 try:
                     leads_df = pd.read_csv(leads_file)
-                    st.write("**Columns found:**", list(leads_df.columns))
+                    st.session_state.leads_data = leads_df
                     
-                    # Basic validation
-                    required_lead_cols = ['company_name']
-                    missing_cols = [col for col in required_lead_cols if col not in leads_df.columns]
-                    
-                    if missing_cols:
-                        st.error(f"Missing required columns: {missing_cols}")
-                    else:
-                        st.session_state.leads_data = leads_df
-                        
-                        st.success(f"Loaded {len(leads_df)} lead records")
-                        st.dataframe(leads_df.head())
-                        
-                        # Show lead info
-                        st.write("**Lead Info:**")
-                        if 'industry' in leads_df.columns:
-                            st.write("- Industries:", leads_df['industry'].nunique())
-                        if 'company_size' in leads_df.columns:
-                            st.write("- Company sizes:", leads_df['company_size'].nunique())
+                    st.success(f"Loaded {len(leads_df)} lead records")
+                    st.dataframe(leads_df.head())
                     
                 except Exception as e:
                     st.error(f"Error loading leads data: {e}")
@@ -526,50 +433,37 @@ def main():
     with tab2:
         st.header("Model Training")
         
-        if st.session_state.crm_data is None:
+        if 'crm_data' not in st.session_state:
             st.warning("Please upload CRM data first")
         else:
             col1, col2 = st.columns([2, 1])
             
             with col1:
-                st.write(f"**Training data:** {len(st.session_state.crm_data)} records")
-                
                 if st.button("Train Model", type="primary"):
                     with st.spinner("Training model..."):
                         try:
                             metrics = st.session_state.sales_system.train_model(st.session_state.crm_data)
+                            st.session_state.model_trained = True
+                            st.session_state.model_metrics = metrics
                             
-                            if metrics:
-                                st.session_state.model_trained = True
-                                st.session_state.model_metrics = metrics
-                                
-                                st.success("Model trained successfully!")
-                                
-                                # Display metrics
-                                col_a, col_b, col_c = st.columns(3)
-                                with col_a:
-                                    st.metric("Accuracy", f"{metrics['accuracy']:.3f}")
-                                with col_b:
-                                    st.metric("AUC Score", f"{metrics['auc']:.3f}")
-                                with col_c:
-                                    try:
-                                        precision = metrics['classification_report']['weighted avg']['precision']
-                                        st.metric("Precision", f"{precision:.3f}")
-                                    except KeyError:
-                                        st.metric("Precision", "N/A")
-                            else:
-                                st.error("Model training failed")
-                                
+                            st.success("Model trained successfully!")
+                            
+                            # Display metrics
+                            col_a, col_b, col_c = st.columns(3)
+                            with col_a:
+                                st.metric("Accuracy", f"{metrics['accuracy']:.3f}")
+                            with col_b:
+                                st.metric("AUC Score", f"{metrics['auc']:.3f}")
+                            with col_c:
+                                precision = metrics['classification_report']['weighted avg']['precision']
+                                st.metric("Precision", f"{precision:.3f}")
+                            
                         except Exception as e:
                             st.error(f"Training failed: {e}")
             
             with col2:
                 if st.session_state.model_trained:
                     st.success("Model Ready")
-                    if st.session_state.model_metrics:
-                        st.write("**Model Performance:**")
-                        st.write(f"- Accuracy: {st.session_state.model_metrics.get('accuracy', 0):.3f}")
-                        st.write(f"- AUC: {st.session_state.model_metrics.get('auc', 0):.3f}")
                 else:
                     st.info("Model Not Trained")
     
@@ -578,17 +472,10 @@ def main():
         
         if not st.session_state.model_trained:
             st.warning("Please train the model first")
-        elif st.session_state.leads_data is None:
+        elif 'leads_data' not in st.session_state:
             st.warning("Please upload leads data first")
         else:
-            batch_size = st.slider("Batch Size", 1, min(50, len(st.session_state.leads_data)), 10)
-            
-            col1, col2 = st.columns([3, 1])
-            with col1:
-                st.write(f"Will process {batch_size} leads from {len(st.session_state.leads_data)} total")
-            with col2:
-                if not openai_key:
-                    st.warning("No OpenAI key - research/email disabled")
+            batch_size = st.slider("Batch Size", 1, 50, 10)
             
             if st.button("Process Leads", type="primary"):
                 leads_df = st.session_state.leads_data.head(batch_size)
@@ -614,27 +501,23 @@ def main():
                     score = st.session_state.sales_system.predict_prospect(prospect_data)
                     
                     if score >= min_score:
-                        # Research company (only if API key available)
-                        if openai_key:
-                            research = research_company(
-                                lead['company_name'], 
-                                lead.get('domain', ''), 
-                                openai_key
-                            )
-                            
-                            # Generate email
-                            email = generate_email(prospect_data, research, openai_key)
-                        else:
-                            research = {"research": "Research disabled - no API key"}
-                            email = {"subject": "Partnership Opportunity", "body": "Email generation disabled - no API key"}
+                        # Research company
+                        research = research_company(
+                            lead['company_name'], 
+                            lead.get('domain', ''), 
+                            openai_key
+                        )
+                        
+                        # Generate email
+                        email = generate_email(prospect_data, research, openai_key)
                         
                         results.append({
                             'company_name': lead['company_name'],
                             'industry': lead.get('industry', 'Unknown'),
                             'score': score,
-                            'research': research.get('research', research.get('error', 'No research available')),
+                            'research': research.get('research', 'No research available'),
                             'email_subject': email.get('subject', 'Partnership Opportunity'),
-                            'email_body': email.get('body', email.get('error', 'Email generation failed')),
+                            'email_body': email.get('body', 'Email generation failed'),
                             'status': 'pending'
                         })
                 
@@ -647,38 +530,19 @@ def main():
     with tab4:
         st.header("Generated Emails")
         
-        if not st.session_state.processing_results:
+        if 'processing_results' not in st.session_state:
             st.info("No results yet. Process some leads first.")
         else:
             results = st.session_state.processing_results
             
-            # Add filter options
-            col1, col2 = st.columns(2)
-            with col1:
-                min_display_score = st.slider("Minimum Score to Display", 0.0, 1.0, 0.0, 0.1)
-            with col2:
-                status_filter = st.selectbox("Status Filter", ["All", "pending", "approved", "rejected"])
-            
-            # Filter results
-            filtered_results = results
-            if min_display_score > 0:
-                filtered_results = [r for r in filtered_results if r['score'] >= min_display_score]
-            if status_filter != "All":
-                filtered_results = [r for r in filtered_results if r['status'] == status_filter]
-            
-            st.write(f"Showing {len(filtered_results)} of {len(results)} results")
-            
-            for idx, result in enumerate(filtered_results):
-                # Find original index
-                orig_idx = next(i for i, r in enumerate(results) if r == result)
-                
-                with st.expander(f"{result['company_name']} - Score: {result['score']:.2f} - {result['status'].title()}"):
+            for idx, result in enumerate(results):
+                with st.expander(f"{result['company_name']} - Score: {result['score']:.2f}"):
                     col1, col2 = st.columns([2, 1])
                     
                     with col1:
                         st.subheader("Generated Email")
                         st.write(f"**Subject:** {result['email_subject']}")
-                        st.text_area("Email Body", result['email_body'], height=100, key=f"email_{orig_idx}")
+                        st.write(result['email_body'])
                         
                         st.subheader("Company Research")
                         st.write(result['research'])
@@ -686,58 +550,41 @@ def main():
                     with col2:
                         st.metric("Conversion Score", f"{result['score']:.1%}")
                         st.metric("Industry", result['industry'])
-                        st.metric("Status", result['status'].title())
                         
-                        col_a, col_b = st.columns(2)
-                        with col_a:
-                            if st.button("Approve", key=f"approve_{orig_idx}"):
-                                st.session_state.processing_results[orig_idx]['status'] = 'approved'
-                                st.success("Email approved!")
+                        if st.button("Approve", key=f"approve_{idx}"):
+                            st.session_state.processing_results[idx]['status'] = 'approved'
+                            st.success("Email approved!")
+                        
+                        if st.button("Regenerate", key=f"regen_{idx}"):
+                            with st.spinner("Regenerating..."):
+                                new_email = generate_email(
+                                    {'company_name': result['company_name'], 'industry': result['industry']},
+                                    {'research': result['research']},
+                                    openai_key
+                                )
+                                st.session_state.processing_results[idx]['email_subject'] = new_email.get('subject', 'Partnership Opportunity')
+                                st.session_state.processing_results[idx]['email_body'] = new_email.get('body', 'Email generation failed')
                                 st.rerun()
-                        
-                        with col_b:
-                            if st.button("Reject", key=f"reject_{orig_idx}"):
-                                st.session_state.processing_results[orig_idx]['status'] = 'rejected'
-                                st.success("Email rejected!")
-                                st.rerun()
-                        
-                        if st.button("Regenerate", key=f"regen_{orig_idx}"):
-                            if openai_key:
-                                with st.spinner("Regenerating..."):
-                                    new_email = generate_email(
-                                        {'company_name': result['company_name'], 'industry': result['industry']},
-                                        {'research': result['research']},
-                                        openai_key
-                                    )
-                                    st.session_state.processing_results[orig_idx]['email_subject'] = new_email.get('subject', 'Partnership Opportunity')
-                                    st.session_state.processing_results[orig_idx]['email_body'] = new_email.get('body', 'Email generation failed')
-                                    st.rerun()
-                            else:
-                                st.error("OpenAI API key required for regeneration")
             
             # Export functionality
             if st.button("Export Results"):
-                try:
-                    df_results = pd.DataFrame(results)
-                    csv = df_results.to_csv(index=False)
-                    b64 = base64.b64encode(csv.encode()).decode()
-                    href = f'<a href="data:file/csv;base64,{b64}" download="sales_results_{datetime.now().strftime("%Y%m%d_%H%M%S")}.csv">Download CSV</a>'
-                    st.markdown(href, unsafe_allow_html=True)
-                    st.success("Export ready!")
-                except Exception as e:
-                    st.error(f"Export failed: {e}")
+                df_results = pd.DataFrame(results)
+                csv = df_results.to_csv(index=False)
+                b64 = base64.b64encode(csv.encode()).decode()
+                href = f'<a href="data:file/csv;base64,{b64}" download="sales_results.csv">Download CSV</a>'
+                st.markdown(href, unsafe_allow_html=True)
     
     with tab5:
         st.header("Analytics Dashboard")
         
-        if st.session_state.processing_results:
+        if 'processing_results' in st.session_state:
             results = st.session_state.processing_results
             
             if results:
                 # Score distribution
                 scores = [r['score'] for r in results]
                 
-                col1, col2, col3, col4 = st.columns(4)
+                col1, col2, col3 = st.columns(3)
                 with col1:
                     st.metric("Total Prospects", len(results))
                 with col2:
@@ -745,9 +592,6 @@ def main():
                 with col3:
                     approved_count = len([r for r in results if r.get('status') == 'approved'])
                     st.metric("Approved Emails", approved_count)
-                with col4:
-                    high_score_count = len([r for r in results if r['score'] >= 0.8])
-                    st.metric("High Score (>=80%)", high_score_count)
                 
                 # Score histogram
                 st.subheader("Score Distribution")
@@ -760,13 +604,6 @@ def main():
                 
                 st.subheader("Industry Breakdown")
                 st.bar_chart(industry_counts)
-                
-                # Status breakdown
-                statuses = [r.get('status', 'pending') for r in results]
-                status_counts = pd.Series(statuses).value_counts()
-                
-                st.subheader("Status Breakdown")
-                st.bar_chart(status_counts)
         else:
             st.info("No analytics data available yet.")
 
