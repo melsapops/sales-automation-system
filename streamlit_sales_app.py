@@ -1,6 +1,3 @@
-# Fill missing industry with 'Unknown'
-        if 'industry' in df.columns:
-            df['industry'] = df['industry'].fillna('Unknown')# app.py - Sales Automation System
 import streamlit as st
 import pandas as pd
 import numpy as np
@@ -82,7 +79,9 @@ class SalesAutomationSystem:
         
         df['won_converted'] = df['won'].apply(convert_won)
         st.write(f"After conversion - unique values: {df['won_converted'].unique()}")
-        
+        # Fill missing industry with 'Unknown'
+        if 'industry' in df.columns:
+            df['industry'] = df['industry'].fillna('Unknown')# app.py - Sales Automation System
         # Remove rows where conversion failed
         before_clean = len(df)
         
